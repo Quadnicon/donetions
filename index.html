@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solidário Tech</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1b2559;--ink2:#2b3a82;--sun:#f2a93b;--bg:#eef2ef;--tx:#1d2233;--mut:#6b7280;--ok:#2e7d5b;--bad:#c0392b;--line:#dde3df}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 'DM Sans',system-ui,sans-serif;color:var(--tx);background:var(--bg);display:flex;min-height:100vh}
+h1,h2,h3,.logo{font-family:'Bricolage Grotesque',system-ui,sans-serif;margin:0}
+aside{width:230px;background:var(--ink);color:#fff;padding:20px 12px;position:sticky;top:0;height:100vh;overflow:auto;flex:none}
+.logo{font-size:22px;padding:0 10px 18px}.logo b{color:var(--sun)}
+aside a{display:block;color:#c9d0f0;text-decoration:none;padding:9px 12px;border-radius:8px;margin-bottom:2px}
+aside a:hover{background:var(--ink2)}aside a.on{background:var(--sun);color:var(--ink);font-weight:700}
+.sep{font-size:13px;color:#8e98cf;padding:14px 12px 4px}
+main{flex:1;padding:28px;min-width:0;max-width:1200px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+h1{font-size:28px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px}
+.grid{display:grid;gap:14px}.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:14px 0}
+.charts{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.kpi b{display:block;font:800 30px 'Bricolage Grotesque',sans-serif;color:var(--ink)}.kpi span{color:var(--mut);font-size:13px}.kpi.warn b{color:var(--bad)}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}th{font-size:13px;color:var(--mut);font-weight:500}
+button{font:inherit;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;background:var(--ink);color:#fff}
+button.sec{background:#e5e9f7;color:var(--ink)}button.del{background:#fbe3df;color:var(--bad)}button.sm{padding:4px 10px;font-size:13px}
+input,select,textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;width:100%}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 3px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:14px}.bar>*{width:auto}.bar label{margin:0}
+.tag{padding:2px 8px;border-radius:99px;font-size:12px;background:#e8f3ee;color:var(--ok)}.tag.bad{background:#fbe3df;color:var(--bad)}
+dialog{border:0;border-radius:14px;padding:22px;width:min(520px,94vw);box-shadow:0 20px 60px #0004}dialog::backdrop{background:#1b255988}
+.ln{display:grid;grid-template-columns:1fr 100px auto;gap:6px;margin-bottom:6px}
+#toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:#fff;padding:12px 18px;border-radius:10px;display:none;z-index:9}#toast.bad{background:var(--bad)}
+.empty{padding:28px;text-align:center;color:var(--mut)}
+:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+@media(max-width:800px){body{display:block}aside{width:auto;height:auto;position:static;display:flex;overflow-x:auto;padding:10px}aside a{white-space:nowrap}.logo,.sep{display:none}main{padding:16px}}
+</style>
+</head>
+<body>
+<aside><div class="logo">Solidário <b>Tech</b></div><nav id="nav"></nav></aside>
+<main id="v"></main>
+<dialog id="dlg"></dialog>
+<div id="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+// ===== CONFIGURAÇÃO: Supabase > Project Settings > API =====
+const SUPABASE_URL='https://cseihnbvwqjgvdaggbej.supabase.co';
+const SUPABASE_KEY='sb_publishable_6KzykMT1mJfaNjO9PDgiZQ_jyVkSC6F'; // nunca use a service_role aqui
+// ===========================================================
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtD=d=>d?d.split('-').reverse().join('/'):'';
+const nf=n=>Number(n).toLocaleString('pt-BR');
+const sum=(a,f)=>a.reduce((s,x)=>s+Number(f(x)),0);
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+let db,charts=[];
+function toast(m,bad){const t=$('#toast');t.textContent=m;t.className=bad?'bad':'';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3800)}
+async function q(p){const{data,error}=await p;if(error){toast(error.message,true);throw error}return data}
+const head=(t,a='')=>`<div class="top"><h1>${t}</h1><div>${a}</div></div>`;
+const tbl=(h,r,ids,em='Nada por aqui ainda. Use o botão de cadastro para começar.')=>r.length?`<table><tr>${h.map(x=>`<th>${x}</th>`).join('')}${ids?'<th></th>':''}</tr>${r.map((x,i)=>`<tr>${x.map(c=>`<td>${c}</td>`).join('')}${ids?`<td><button class="sec sm" data-e="${ids[i]}">Editar</button> <button class="del sm" data-d="${ids[i]}">Excluir</button></td>`:''}</tr>`).join('')}</table>`:`<div class="empty">${em}</div>`;
+function modal(html,onSave){const d=$('#dlg');d.innerHTML=`<form method="dialog" id="fm">${html}<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button type="button" class="sec" id="cx">Cancelar</button><button>Salvar</button></div></form>`;
+ $('#cx').onclick=()=>d.close();
+ $('#fm').onsubmit=async e=>{e.preventDefault();try{if(await onSave())d.close()}catch(_){}};d.showModal()}
+
+// ===== Cadastros simples (CRUD genérico) =====
+const C={
+ itens:{t:'Itens',s:'Novo item',f:[{k:'nome',l:'Nome',r:1},{k:'categoria_id',l:'Categoria',fk:'categorias',r:1},{k:'unidade',l:'Unidade (kg, un, l...)',r:1,d:'un'},{k:'estoque_minimo',l:'Estoque mínimo',n:1,d:0}]},
+ categorias:{t:'Categorias',s:'Nova categoria',f:[{k:'nome',l:'Nome',r:1}]},
+ doadores:{t:'Doadores',s:'Novo doador',f:[{k:'nome',l:'Nome',r:1},{k:'tipo',l:'Tipo',o:{pessoa:'Pessoa',empresa:'Empresa',instituicao:'Instituição'},d:'pessoa'},{k:'documento',l:'CPF/CNPJ'},{k:'telefone',l:'Telefone'},{k:'email',l:'E-mail'}]},
+ beneficiarios:{t:'Beneficiários',s:'Novo beneficiário',f:[{k:'nome',l:'Nome',r:1},{k:'tipo',l:'Tipo',o:{pessoa:'Pessoa/família',instituicao:'Instituição'},d:'pessoa'},{k:'documento',l:'CPF/CNPJ'},{k:'telefone',l:'Telefone'},{k:'endereco',l:'Endereço'},{k:'qtd_pessoas',l:'Pessoas atendidas',n:1,r:1,d:1}]}
+};
+function fld(f,v,opts){const id='f_'+f.k,val=v??f.d??'';
+ if(opts)return `<label>${f.l}</label><select id="${id}">${f.r?'':'<option value="">—</option>'}${opts.map(([a,b])=>`<option value="${esc(a)}" ${a==val?'selected':''}>${esc(b)}</option>`).join('')}</select>`;
+ return `<label>${f.l}</label><input id="${id}" type="${f.n?'number':'text'}" ${f.n?'step="any" min="0"':''} value="${esc(val)}">`}
+async function crud(k){
+ const c=C[k],rows=await q(db.from(k).select('*').order('id',{ascending:false})),fks={};
+ for(const f of c.f)if(f.fk)fks[f.k]=Object.fromEntries((await q(db.from(f.fk).select('id,nome'))).map(x=>[x.id,x.nome]));
+ const show=r=>c.f.map(f=>f.fk?fks[f.k][r[f.k]]:f.o?f.o[r[f.k]]:r[f.k]??'');
+ $('#v').innerHTML=head(c.t,`<button id="new">+ ${c.s}</button>`)+`<div class="card"><div class="bar"><input id="busca" placeholder="Pesquisar..."></div><div class="tw" id="tb"></div></div>`;
+ const draw=()=>{const s=$('#busca').value.toLowerCase(),r=rows.filter(x=>show(x).join(' ').toLowerCase().includes(s));
+  $('#tb').innerHTML=tbl(c.f.map(f=>f.l),r.map(x=>show(x).map(esc)),r.map(x=>x.id))};
+ const edit=async id=>{const r=id?rows.find(x=>x.id==id):{};
+  const sel=await Promise.all(c.f.map(async f=>f.fk?(await q(db.from(f.fk).select('id,nome').order('nome'))).map(x=>[x.id,x.nome]):f.o?Object.entries(f.o):null));
+  modal(`<h2>${id?'Editar':c.s}</h2>`+c.f.map((f,i)=>fld(f,r[f.k],sel[i])).join(''),async()=>{
+   const o={};for(const f of c.f){const v=$('#f_'+f.k).value.trim();if(f.r&&!v)return toast(`Preencha: ${f.l}`,true);o[f.k]=f.n?Number(v||0):f.fk?(v?Number(v):null):(v||null)}
+   await q(id?db.from(k).update(o).eq('id',id):db.from(k).insert(o));toast('Salvo com sucesso');crud(k);return true})};
+ $('#busca').oninput=draw;$('#new').onclick=()=>edit();
+ $('#tb').onclick=async e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.e)edit(b.dataset.e);
+  if(b.dataset.d&&confirm('Excluir este registro?')){try{await q(db.from(k).delete().eq('id',b.dataset.d));toast('Excluído');crud(k)}catch(_){}}};
+ draw()}
+
+// ===== Doações e distribuições (cabeçalho + itens) =====
+const M={
+ doacoes:{t:'Doações',s:'Nova doação',p:'doadores',pc:'doador_id',pl:'Doador',po:1,pe:'Anônimo',l:'doacao_itens',lk:'doacao_id',d:'data_doacao'},
+ distribuicoes:{t:'Distribuições',s:'Nova distribuição',p:'beneficiarios',pc:'beneficiario_id',pl:'Beneficiário',l:'distribuicao_itens',lk:'distribuicao_id',d:'data_distribuicao'}
+};
+async function mov(k){
+ const m=M[k];
+ const rows=await q(db.from(k).select(`*,${m.p}(nome),${m.l}(id,item_id,quantidade,itens(nome,unidade))`).order(m.d,{ascending:false}).order('id',{ascending:false}));
+ const itens=await q(db.from('itens').select('id,nome,unidade').eq('ativo',true).order('nome'));
+ const parts=await q(db.from(m.p).select('id,nome').order('nome'));
+ $('#v').innerHTML=head(m.t,`<button id="new">+ ${m.s}</button>`)+`<div class="card"><div class="tw" id="tb"></div></div>`;
+ const itx=r=>r[m.l].map(i=>`${esc(i.itens.nome)}: ${nf(i.quantidade)} ${esc(i.itens.unidade)}`).join(', ');
+ $('#tb').innerHTML=tbl(['Data',m.pl,'Itens','Observações'],rows.map(r=>[fmtD(r[m.d]),esc(r[m.p]?.nome||m.pe||'—'),`<span style="white-space:normal">${itx(r)}</span>`,esc(r.observacoes||'')]),rows.map(r=>r.id));
+ const opt=(a,sel)=>a.map(x=>`<option value="${x.id}" ${x.id==sel?'selected':''}>${esc(x.nome)}${x.unidade?' ('+esc(x.unidade)+')':''}</option>`).join('');
+ const line=i=>`<div class="ln"><select class="li">${opt(itens,i?.item_id)}</select><input class="lq" type="number" min="0.01" step="any" placeholder="Qtd" value="${i?i.quantidade:''}"><button type="button" class="del sm" onclick="this.parentNode.remove()">×</button></div>`;
+ const form=id=>{
+  if(!itens.length)return toast('Cadastre itens antes de registrar movimentações',true);
+  if(!m.po&&!parts.length)return toast(`Cadastre um ${m.pl.toLowerCase()} primeiro`,true);
+  const r=rows.find(x=>x.id==id)||{[m.l]:[]},old=r[m.l];
+  modal(`<h2>${id?'Editar':m.s}</h2><label>${m.pl}</label><select id="pp">${m.po?'<option value="">Anônimo</option>':''}${opt(parts,r[m.pc])}</select><label>Data</label><input id="dt" type="date" value="${r[m.d]||today()}"><label>Itens</label><div id="ls">${old.map(line).join('')||line()}</div><button type="button" class="sec sm" id="al">+ Adicionar item</button><label>Observações</label><textarea id="ob" rows="2">${esc(r.observacoes||'')}</textarea>`,async()=>{
+   const ls=[...document.querySelectorAll('#ls .ln')].map(e=>({item_id:+e.querySelector('.li').value,quantidade:+e.querySelector('.lq').value}));
+   if(!ls.length||ls.some(x=>!(x.quantidade>0)))return toast('Informe item e quantidade maior que zero em todas as linhas',true);
+   if(new Set(ls.map(x=>x.item_id)).size<ls.length)return toast('Não repita o mesmo item na mesma operação',true);
+   const o={[m.pc]:+$('#pp').value||null,[m.d]:$('#dt').value||today(),observacoes:$('#ob').value.trim()||null};
+   let pid=id;
+   if(id)await q(db.from(k).update(o).eq('id',id));else pid=(await q(db.from(k).insert(o).select('id')))[0].id;
+   try{
+    for(const x of old)if(!ls.some(l=>l.item_id==x.item_id))await q(db.from(m.l).delete().eq('id',x.id));
+    for(const l of ls){const x=old.find(y=>y.item_id==l.item_id);
+     if(x){if(+x.quantidade!==l.quantidade)await q(db.from(m.l).update({quantidade:l.quantidade}).eq('id',x.id))}
+     else await q(db.from(m.l).insert({[m.lk]:pid,...l}))}
+   }catch(e){if(!id)await db.from(k).delete().eq('id',pid);throw e}
+   toast('Salvo com sucesso');mov(k);return true});
+  $('#al').onclick=()=>$('#ls').insertAdjacentHTML('beforeend',line())};
+ $('#new').onclick=()=>form();
+ $('#tb').onclick=async e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.e)form(b.dataset.e);
+  if(b.dataset.d&&confirm('Excluir este registro e seus itens?')){try{await q(db.from(k).delete().eq('id',b.dataset.d));toast('Excluído');mov(k)}catch(_){}}}}
+
+// ===== Estoque =====
+async function estoque(){
+ const rows=await q(db.from('estoque_atual').select('*').order('item'));
+ $('#v').innerHTML=head('Estoque')+`<div class="card"><div class="bar"><input id="busca" placeholder="Pesquisar item ou categoria..."><label><input type="checkbox" id="baixo" style="width:auto"> só estoque baixo</label></div><div class="tw" id="tb"></div></div>`;
+ const draw=()=>{const s=$('#busca').value.toLowerCase(),b=$('#baixo').checked,r=rows.filter(x=>(x.item+x.categoria).toLowerCase().includes(s)&&(!b||x.estoque_baixo));
+  $('#tb').innerHTML=tbl(['Item','Categoria','Recebido','Distribuído','Saldo','Situação'],r.map(x=>[esc(x.item),esc(x.categoria),`${nf(x.total_recebido)} ${esc(x.unidade)}`,`${nf(x.total_distribuido)} ${esc(x.unidade)}`,`<b>${nf(x.saldo)} ${esc(x.unidade)}</b>`,x.estoque_baixo?'<span class="tag bad">Baixo</span>':'<span class="tag">Ok</span>']),0,'Nenhum item encontrado.')};
+ $('#busca').oninput=draw;$('#baixo').onchange=draw;draw()}
+
+// ===== Painel (dashboard) =====
+async function dash(){
+ const cats=await q(db.from('categorias').select('nome').order('nome'));
+ $('#v').innerHTML=head('Painel')+`<div class="bar card"><div><label>De</label><input type="date" id="de"></div><div><label>Até</label><input type="date" id="ate"></div><div><label>Categoria</label><select id="ct"><option value="">Todas</option>${cats.map(c=>`<option>${esc(c.nome)}</option>`).join('')}</select></div><button id="ap">Aplicar filtros</button></div><div class="grid kpis" id="k"></div><div class="grid charts" id="ch"></div><div class="card" style="margin-top:14px"><h3>Itens com estoque baixo</h3><div class="tw" id="lw"></div></div>`;
+ const go=async()=>{
+  const de=$('#de').value,ate=$('#ate').value,ct=$('#ct').value;
+  const f=(x,c)=>{if(de)x=x.gte(c,de);if(ate)x=x.lte(c,ate);return x};
+  let[en,sa,es]=await Promise.all([q(f(db.from('vw_entradas').select('*'),'data_doacao')),q(f(db.from('vw_saidas').select('*'),'data_distribuicao')),q(db.from('estoque_atual').select('*'))]);
+  if(ct){en=en.filter(x=>x.categoria==ct);sa=sa.filter(x=>x.categoria==ct);es=es.filter(x=>x.categoria==ct)}
+  const ds=new Map(sa.map(x=>[x.distribuicao_id,x.qtd_pessoas])),baixo=es.filter(x=>x.estoque_baixo);
+  $('#k').innerHTML=[['Doações recebidas',new Set(en.map(x=>x.doacao_id)).size],['Doadores',new Set(en.filter(x=>x.tipo_doador!='anonimo').map(x=>x.doador)).size],['Distribuições',ds.size],['Pessoas atendidas (por entrega)',sum([...ds.values()],x=>x)],['Itens com estoque baixo',baixo.length,1]].map(([l,v,w])=>`<div class="card kpi ${w&&v?'warn':''}"><b>${nf(v)}</b><span>${l}</span></div>`).join('');
+  charts.forEach(c=>c.destroy());charts=[];
+  $('#ch').innerHTML=['c1','c2','c3'].map(i=>`<div class="card"><canvas id="${i}"></canvas></div>`).join('');
+  const mk=(id,cfg)=>charts.push(new Chart(document.getElementById(id),cfg)),tt=t=>({display:true,text:t});
+  const mm={};new Map(en.map(x=>[x.doacao_id,x.data_doacao])).forEach(d=>{const m=d.slice(0,7);mm[m]=(mm[m]||0)+1});
+  const ms=Object.keys(mm).sort();
+  mk('c1',{type:'line',data:{labels:ms.map(m=>m.split('-').reverse().join('/')),datasets:[{label:'Doações',data:ms.map(m=>mm[m]),borderColor:'#1b2559',backgroundColor:'#f2a93b55',fill:true,tension:.3}]},options:{plugins:{title:tt('Doações recebidas por mês')},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  const cs=[...new Set([...en,...sa].map(x=>x.categoria))].sort(),bc=(a,c)=>sum(a.filter(x=>x.categoria==c),x=>x.quantidade);
+  mk('c2',{type:'bar',data:{labels:cs,datasets:[{label:'Recebido',data:cs.map(c=>bc(en,c)),backgroundColor:'#1b2559'},{label:'Distribuído',data:cs.map(c=>bc(sa,c)),backgroundColor:'#f2a93b'}]},options:{plugins:{title:tt('Recebido x distribuído por categoria (soma das quantidades)')}}});
+  const dd={};new Map(en.map(x=>[x.doacao_id,x.doador])).forEach(n=>dd[n]=(dd[n]||0)+1);
+  const top=Object.entries(dd).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  mk('c3',{type:'bar',data:{labels:top.map(x=>x[0]),datasets:[{data:top.map(x=>x[1]),backgroundColor:'#2e7d5b'}]},options:{indexAxis:'y',plugins:{title:tt('Maiores doadores (nº de doações)'),legend:{display:false}},scales:{x:{ticks:{precision:0}}}}});
+  $('#lw').innerHTML=tbl(['Item','Categoria','Saldo','Mínimo'],baixo.map(x=>[esc(x.item),esc(x.categoria),`${nf(x.saldo)} ${esc(x.unidade)}`,nf(x.estoque_minimo)]),0,'Nenhum item abaixo do mínimo.')};
+ $('#ap').onclick=go;go()}
+
+// ===== Relatórios + CSV =====
+async function rel(){
+ $('#v').innerHTML=head('Relatórios')+`<div class="bar card"><div><label>Relatório</label><select id="rt"><option value="vw_entradas">Doações recebidas</option><option value="vw_saidas">Distribuições</option><option value="estoque_atual">Estoque atual</option></select></div><div><label>De</label><input type="date" id="de"></div><div><label>Até</label><input type="date" id="ate"></div><button id="ap">Gerar</button><button class="sec" id="csv">Baixar CSV</button></div><div class="card"><div class="tw" id="tb"></div></div>`;
+ let data=[];
+ const R={vw_entradas:{c:'data_doacao',h:{data_doacao:'Data',doador:'Doador',tipo_doador:'Tipo',item:'Item',categoria:'Categoria',unidade:'Unidade',quantidade:'Quantidade'}},
+  vw_saidas:{c:'data_distribuicao',h:{data_distribuicao:'Data',beneficiario:'Beneficiário',tipo_beneficiario:'Tipo',item:'Item',categoria:'Categoria',unidade:'Unidade',quantidade:'Quantidade',qtd_pessoas:'Pessoas atendidas'}},
+  estoque_atual:{h:{item:'Item',categoria:'Categoria',unidade:'Unidade',total_recebido:'Recebido',total_distribuido:'Distribuído',saldo:'Saldo',estoque_minimo:'Mínimo'}}};
+ const gen=async()=>{const t=$('#rt').value,r=R[t],ks=Object.keys(r.h);let x=db.from(t).select(ks.join(','));
+  if(r.c){if($('#de').value)x=x.gte(r.c,$('#de').value);if($('#ate').value)x=x.lte(r.c,$('#ate').value);x=x.order(r.c,{ascending:false})}
+  data=await q(x);$('#tb').innerHTML=tbl(Object.values(r.h),data.map(d=>ks.map(k=>esc(k.startsWith('data')?fmtD(d[k]):d[k]))),0,'Nenhum registro no período.')};
+ $('#ap').onclick=gen;
+ $('#csv').onclick=()=>{if(!data.length)return toast('Gere um relatório com dados antes de baixar',true);
+  const t=$('#rt').value,ks=Object.keys(R[t].h),cell=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+  const txt='\ufeff'+[ks.map(k=>cell(R[t].h[k])),...data.map(d=>ks.map(k=>cell(d[k])))].map(l=>l.join(';')).join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));a.download=t+'.csv';a.click()};
+ gen()}
+
+// ===== Navegação =====
+const P={dashboard:['Painel',dash],doacoes:['Doações',()=>mov('doacoes')],distribuicoes:['Distribuições',()=>mov('distribuicoes')],estoque:['Estoque',estoque],relatorios:['Relatórios',rel],'-':['Cadastros'],itens:['Itens',()=>crud('itens')],categorias:['Categorias',()=>crud('categorias')],doadores:['Doadores',()=>crud('doadores')],beneficiarios:['Beneficiários',()=>crud('beneficiarios')]};
+$('#nav').innerHTML=Object.entries(P).map(([k,[t]])=>k=='-'?`<div class="sep">${t}</div>`:`<a href="#${k}" data-k="${k}">${t}</a>`).join('');
+function route(){const k=P[location.hash.slice(1)]?location.hash.slice(1):'dashboard';
+ document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('on',a.dataset.k==k));
+ charts.forEach(c=>c.destroy());charts=[];P[k][1]().catch(()=>{})}
+if(SUPABASE_URL.startsWith('COLE')){$('#v').innerHTML=`<div class="card"><h2>Falta conectar ao Supabase</h2><p>Abra o index.html em um editor de texto e preencha SUPABASE_URL e SUPABASE_KEY no início do script.</p></div>`}
+else{db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);addEventListener('hashchange',route);route()}
+</script>
+</body>
+</html>
